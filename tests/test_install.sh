@@ -62,6 +62,7 @@ assert_dir_not_exists() {
 }
 
 export HOME="$FAKE_HOME"
+unset HERMES_HOME
 
 mkdir -p "$FAKE_HOME/.hermes/hermes-agent"
 python3 -m venv "$FAKE_HOME/.hermes/hermes-agent/venv"
@@ -223,6 +224,26 @@ if PATH="$FAKE_BIN:$PATH" "$REPO_DIR/install.sh" >/dev/null 2>&1; then
     assert_file_not_exists "$T8" "$FAKE_HOME/.claude/.credentials.json" && pass "$T8"
 else
     fail "$T8" "install.sh exited non-zero when Keychain entry absent"
+fi
+
+# Test 9: Custom HERMES_HOME is respected
+T9="Test 9: Custom HERMES_HOME respected"
+CUSTOM_HERMES_HOME="$(mktemp -d)"
+trap 'rm -rf "$FAKE_HOME" "$CUSTOM_HERMES_HOME"' EXIT
+mkdir -p "$CUSTOM_HERMES_HOME/hermes-agent"
+python3 -m venv "$CUSTOM_HERMES_HOME/hermes-agent/venv"
+CUSTOM_VENV_PYTHON="$CUSTOM_HERMES_HOME/hermes-agent/venv/bin/python"
+CUSTOM_SITE_PACKAGES="$("$CUSTOM_VENV_PYTHON" -c 'import site; print(site.getsitepackages()[0])')"
+CUSTOM_PATCH_FILE="$CUSTOM_HERMES_HOME/patches/anthropic_billing_bypass.py"
+CUSTOM_SITECUSTOMIZE="$CUSTOM_SITE_PACKAGES/sitecustomize.py"
+if HERMES_HOME="$CUSTOM_HERMES_HOME" "$REPO_DIR/install.sh" >/dev/null 2>&1; then
+    ok=1
+    assert_file_exists "$T9" "$CUSTOM_PATCH_FILE" || ok=0
+    assert_file_exists "$T9" "$CUSTOM_SITECUSTOMIZE" || ok=0
+    assert_file_contains "$T9" "$CUSTOM_SITECUSTOMIZE" "# hermes-claude-auth managed" || ok=0
+    [ "$ok" -eq 1 ] && pass "$T9"
+else
+    fail "$T9" "install.sh exited non-zero with custom HERMES_HOME"
 fi
 
 TOTAL=$((PASS + FAIL))
